@@ -104,6 +104,12 @@ class JuegoInterface:
         j = 1
         pasos = 0
         while not self.juego.terminal(s) and pasos < max_pasos:
+            # Si el jugador no tiene jugadas legales reales, pasa turno
+            if list(self.juego.jugadas_legales(s, j)) == [None]:
+                print(f"Jugador {' XO'[j]} pasa turno")
+                j = -j
+                pasos += 1
+                continue
             a = self.pide_jugada(self.jugador[j], s, j)
             s = self.juego.sucesor(s, a, j)
             self.muestra_estado(s)
