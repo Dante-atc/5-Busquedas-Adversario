@@ -150,16 +150,128 @@ def evalua_3con(s):
         raise ValueError("Evaluación fuera de rango --> ", promedio)
     return promedio
 
+# Heurísticas mejoradas
+
+# Todas las ventanas de 4 celdas contiguas posibles en el tablero,
+def _genera_ventanas():
+    ventanas = []
+    for col in range(7):          # verticales
+        for fila in range(3):
+            ventanas.append([col + 7 * (fila + k) for k in range(4)])
+    for fila in range(6):         # horizontales
+        for col in range(4):
+            ventanas.append([7 * fila + col + k for k in range(4)])
+    for fila in range(3):         # diagonal bajando-derecha
+        for col in range(4):
+            ventanas.append([col + 7 * fila + k * 8 for k in range(4)])
+    for fila in range(3):         # diagonal bajando-izquierda
+        for col in range(3, 7):
+            ventanas.append([col + 7 * fila + k * 6 for k in range(4)])
+    return ventanas
+
+_VENTANAS  = _genera_ventanas()
+_PESOS     = {3: 5, 2: 2, 1: 0}   # puntos por ventana según fichas propias
+_CENTRO    = {0: 0, 1: 1, 2: 2, 3: 3, 4: 2, 5: 1, 6: 0}  # bonus por columna
+_MAX_SCORE = 2000                  # normalizador empírico
+
+
+def _celda_libre(col, s):
+    """Índice de la celda donde caería una ficha en la columna col."""
+    for fila in range(5, -1, -1):
+        if s[col + 7 * fila] == 0:
+            return col + 7 * fila
+    return -1
+
+
+def _gana_en(col, jugador, s):
+    """True si poner una ficha de jugador en col completa un cuatro en raya."""
+    idx = _celda_libre(col, s)
+    if idx == -1:
+        return False
+    s2 = list(s); s2[idx] = jugador; s2 = tuple(s2)
+    return any(all(s2[i] == jugador for i in v) for v in _VENTANAS)
+
+
+# Variable global para pasar el estado a ordena_centro_m
+_estado_actual = [tuple([0] * 42)]
+
+_sucesor_original = Conecta4.sucesor
+
+def _sucesor_con_estado(self, s, a, j):
+    _estado_actual[0] = s
+    return _sucesor_original(self, s, a, j)
+
+Conecta4.sucesor = _sucesor_con_estado
+
+
+def ordena_centro_m(jugadas, jugador):
+    """
+    Ordena las jugadas priorizando:
+      1. Jugadas que ganan el juego inmediatamente
+      2. Jugadas que bloquean una victoria inmediata del rival
+      3. Distancia al centro como desempate (corrige el bug de ordena_centro)
+    """
+    jugadas = list(jugadas)
+    s = _estado_actual[0]
+
+    ganadoras = [c for c in jugadas if _gana_en(c,  jugador, s)]
+    if ganadoras:
+        return ganadoras + [c for c in jugadas if c not in ganadoras]
+
+    bloqueos = [c for c in jugadas if _gana_en(c, -jugador, s)]
+    resto    = [c for c in jugadas if c not in bloqueos]
+
+    return (
+        sorted(bloqueos, key=lambda c: -_CENTRO[c]) +
+        sorted(resto,    key=lambda c: -_CENTRO[c])
+    )
+
+
+def _puntua_ventana(ventana, s, jugador):
+    """
+    Puntúa una ventana de 4 celdas para jugador.
+    Devuelve 0 si la ventana está bloqueada (tiene fichas de ambos jugadores).
+    """
+    propias = sum(1 for i in ventana if s[i] == jugador)
+    rivales = sum(1 for i in ventana if s[i] == -jugador)
+    if propias > 0 and rivales > 0:
+        return 0
+    if rivales > 0:
+        return 0
+    return _PESOS.get(propias, 0)
+
+
+def evalua_posicion(s):
+    """
+    Evalúa el estado s para el jugador 1 considerando:
+      - Todas las ventanas de 4 celdas con pesos por cantidad de fichas propias
+      - Bonus por control de columnas centrales
+    Devuelve un valor en (-1, 1).
+    """
+    score = sum(
+        _puntua_ventana(v, s,  1) - _puntua_ventana(v, s, -1)
+        for v in _VENTANAS
+    )
+    score += sum(
+        _CENTRO[col] * (
+            sum(1 for fila in range(6) if s[col + 7 * fila] ==  1) -
+            sum(1 for fila in range(6) if s[col + 7 * fila] == -1)
+        )
+        for col in range(7)
+    )
+    return max(-0.99, min(0.99, score / _MAX_SCORE))
+
+
 if __name__ == '__main__':
 
     cfg = {
-        "Jugador 1": "Humano",      #Puede ser "Humano", "Aleatorio", "Negamax", "Tiempo"
-        "Jugador 2": "Aleatorio",   #Puede ser "Humano", "Aleatorio", "Negamax", "Tiempo"
-        "profundidad máxima": 5,
-        "tiempo": 10,
-        "ordena": ordena_centro,    #Puede ser None o una función f(jugadas, j) -> lista de jugadas ordenada
-        "evalua": evalua_3con       #Puede ser None o una función f(estado) -> número entre -1 y 1
-    }
+    "Jugador 1": "Humano",      #Puede ser "Humano", "Aleatorio", "Negamax", "Tiempo"
+    "Jugador 2": "Negamax",     #Puede ser "Humano", "Aleatorio", "Negamax", "Tiempo"
+    "profundidad máxima": 6,
+    "tiempo": 10,
+    "ordena": ordena_centro_m,  
+    "evalua": evalua_posicion    
+}
 
     def jugador_cfg(cadena):
         if cadena == "Humano":
