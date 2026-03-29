@@ -121,6 +121,10 @@ def ordena_othello(jugadas, jugador):
       3. Centro    — desempate por cuántas fichas voltea (más es mejor)
       4. Peligrosas — adyacentes a esquinas vacías, van al fondo
     """
+
+    if jugadas == [None]:
+        return [None]
+
     s = _estado_actual_othello[0]
  
     def prioridad(a):
@@ -184,20 +188,96 @@ class InterfaceOthello(js.JuegoInterface):
             except ValueError:
                 pass
         return jugada
-    
-    
-    
+
+
+def evalua_othello(s):
+    """Evalúa por diferencia de fichas, normalizado entre -1 y 1."""
+    diff = sum(s)
+    return diff / 64   
+
+
+# Heuristica avanzada basada en pesos por posicion y fase del juego
+
+# Tablas de pesos posicionales por fase
+_TABLA_APERTURA = [
+    -50, -20,  10,  5,  5, 10, -20, -50,
+    -20, -30,   1,  1,  1,  1, -30, -20,
+     10,   1,   5,  3,  3,  5,   1,  10,
+      5,   1,   3,  1,  1,  3,   1,   5,
+      5,   1,   3,  1,  1,  3,   1,   5,
+     10,   1,   5,  3,  3,  5,   1,  10,
+    -20, -30,   1,  1,  1,  1, -30, -20,
+    -50, -20,  10,  5,  5, 10, -20, -50,
+]
+
+_TABLA_MEDIO = [
+    100, -20,  10,  5,  5, 10, -20, 100,
+    -20, -30,   1,  1,  1,  1, -30, -20,
+     10,   1,   5,  3,  3,  5,   1,  10,
+      5,   1,   3,  1,  1,  3,   1,   5,
+      5,   1,   3,  1,  1,  3,   1,   5,
+     10,   1,   5,  3,  3,  5,   1,  10,
+    -20, -30,   1,  1,  1,  1, -30, -20,
+    100, -20,  10,  5,  5, 10, -20, 100,
+]
+
+_TABLA_FINAL = [
+    200, 10,  10,  10,  10,  10,  10, 200,
+     10,  5,   3,   3,   3,   3,   5,  10,
+     10,  3,   1,   1,   1,   1,   3,  10,
+     10,  3,   1,   1,   1,   1,   3,  10,
+     10,  3,   1,   1,   1,   1,   3,  10,
+     10,  3,   1,   1,   1,   1,   3,  10,
+     10,  5,   3,   3,   3,   3,   5,  10,
+    200, 10,  10,  10,  10,  10,  10, 200,
+]
+
+
+def heuristica(s):
+    """
+    Evalúa el estado s para el jugador 1 usando tabla posicional por fase.
+    Apertura: movilidad y evitar celdas peligrosas
+    Medio juego: esquinas y bordes
+    Final: conteo de fichas con bonus posicional
+    """
+    fichas = sum(1 for c in s if c != 0)
+
+    if fichas < 20:
+        tabla = _TABLA_APERTURA
+        w_tabla, w_movil = 0.6, 0.4
+    elif fichas < 50:
+        tabla = _TABLA_MEDIO
+        w_tabla, w_movil = 0.8, 0.2
+    else:
+        tabla = _TABLA_FINAL
+        w_tabla, w_movil = 0.9, 0.1
+
+    # Score posicional
+    score_tabla = sum(tabla[i] * s[i] for i in range(64))
+    max_tabla = sum(abs(v) for v in tabla)
+    score_tabla = score_tabla / max_tabla  # normalizado
+
+    # Movilidad
+    mov_j1 = len([a for a in range(64) if s[a] == 0 and _voltea(s, a,  1)])
+    mov_j2 = len([a for a in range(64) if s[a] == 0 and _voltea(s, a, -1)])
+    total_mov = mov_j1 + mov_j2
+    score_movil = (mov_j1 - mov_j2) / total_mov if total_mov > 0 else 0
+
+    score = w_tabla * score_tabla + w_movil * score_movil
+    return max(-0.99, min(0.99, score))
+
+
 # Script principal
 
 if __name__ == '__main__':
  
     cfg = {
         "Jugador 1": "Humano",      # "Humano", "Aleatorio", "Negamax", "Tiempo"
-        "Jugador 2": "Aleatorio",   # "Humano", "Aleatorio", "Negamax", "Tiempo"
+        "Jugador 2": "Negamax",   # "Humano", "Aleatorio", "Negamax", "Tiempo"
         "profundidad máxima": 5,
         "tiempo": 10,
         "ordena": ordena_othello,
-        "evalua": None              # se agrega en la parte 3
+        "evalua": heuristica              # heuristica
     }
  
     def jugador_cfg(cadena):
